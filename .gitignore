@@ -1,0 +1,19 @@
+# Mengabaikan database SQLite lokal beserta folder datanya
+data/sentiment.db
+data/
+
+# Mengabaikan python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Mengabaikan local environment jika ada
+.venv/
+venv/
+ENV/
+.env
+
+# Mengabaikan log file
+*.log

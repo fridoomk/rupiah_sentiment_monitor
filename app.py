@@ -30,15 +30,24 @@ days = st.sidebar.slider("Select Data Range (Days)", 1, 30, 7)
 # Load Data
 try:
     df = load_data()
-    df['created_at'] = pd.to_datetime(df['created_at'])
-    df_filtered = df[df['created_at'] > (datetime.now() - timedelta(days=days))]
+    
+    # Memastikan format datetime aman & menangani fluktuasi format string timezone
+    df['created_at'] = pd.to_datetime(df['created_at']).dt.tz_localize(None)
+    
+    # Ambil titik waktu acuan dari data terbaru yang masuk di database (Lebih aman dari timezone server)
+    latest_time = df['created_at'].max() if not df.empty else datetime.now()
+    
+    # Filter data berdasarkan slider di sidebar
+    df_filtered = df[df['created_at'] > (latest_time - timedelta(days=days))]
 
     # Metric Cards
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total News (Today)", len(df[df['created_at'] > (datetime.now() - timedelta(days=1))]))
+        # Menghitung total berita dalam 24 jam terakhir dari waktu data terbaru
+        total_today = len(df[df['created_at'] > (latest_time - timedelta(days=1))])
+        st.metric("Total News (Today)", total_today)
     with col2:
-        avg_sentiment = df_filtered['sentiment_score'].mean()
+        avg_sentiment = df_filtered['sentiment_score'].mean() if not df_filtered.empty else 0.0
         st.metric("Avg Sentiment Score", f"{avg_sentiment:.2f}")
     with col3:
         sentiment_label = "Neutral"
@@ -50,33 +59,50 @@ try:
     tab1, tab2, tab3 = st.tabs(["📈 Trends", "☁️ Word Cloud", "📰 Latest News"])
 
     with tab1:
-        st.subheader("Sentiment Trends (Last 24 Hours)")
-        df_24h = df[df['created_at'] > (datetime.now() - timedelta(days=1))]
-        if not df_24h.empty:
-            df_24h = df_24h.set_index('created_at').resample('H')['sentiment_score'].mean().reset_index()
-            fig = px.line(df_24h, x='created_at', y='sentiment_score', title="Hourly Sentiment Score")
+        st.subheader(f"Sentiment Trends (Last {days} Days)")
+        if not df_filtered.empty:
+            # PERBAIKAN: Menggunakan 'h' kecil untuk resample hourly dan basis data dinamis sesuai slider
+            df_trends = df_filtered.set_index('created_at').resample('h')['sentiment_score'].mean().reset_index()
+            
+            # Jika rentang hari terlalu panjang, resample diubah ke harian ('d') otomatis agar grafik rapi
+            if days > 7:
+                df_trends = df_filtered.set_index('created_at').resample('d')['sentiment_score'].mean().reset_index()
+            
+            # Interpolasi linear jika ada jam kosong tanpa berita agar grafik tidak putus
+            df_trends['sentiment_score'] = df_trends['sentiment_score'].interpolate(method='linear')
+            
+            fig = px.line(df_trends, x='created_at', y='sentiment_score', title="Sentiment Score Timeline")
+            fig.update_layout(hovermode="x unified")
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No data available for the last 24 hours.")
+            st.info("No data available for the selected range.")
 
     with tab2:
         st.subheader("Dominant Economic Issues")
-        text = " ".join(df_filtered['title'].tolist())
-        if text:
-            wordcloud = WordCloud(width=800, height=400, background_color='white', colormap='viridis').generate(text)
-            fig, ax = plt.subplots()
-            ax.imshow(wordcloud, interpolation='bilinear')
-            ax.axis("off")
-            st.pyplot(fig)
+        if not df_filtered.empty:
+            text = " ".join(df_filtered['title'].astype(str).tolist())
+            if text.strip():
+                wordcloud = WordCloud(width=800, height=400, background_color='white', colormap='viridis').generate(text)
+                fig, ax = plt.subplots()
+                ax.imshow(wordcloud, interpolation='bilinear')
+                ax.axis("off")
+                st.pyplot(fig)
+            else:
+                st.info("Not enough textual data to generate word cloud.")
         else:
-            st.info("Not enough data to generate word cloud.")
+            st.info("No data available to generate word cloud.")
 
     with tab3:
         st.subheader("Latest Economic Headlines")
-        st.dataframe(df_filtered[['created_at', 'source', 'title', 'sentiment_label']].head(20), use_container_width=True)
+        if not df_filtered.empty:
+            # Memastikan kolom yang dipanggil ada di dataframe
+            available_cols = [col for col in ['created_at', 'source', 'title', 'sentiment_label'] if col in df_filtered.columns]
+            st.dataframe(df_filtered[available_cols].head(20), use_container_width=True)
+        else:
+            st.info("No headlines found for this date range.")
 
 except Exception as e:
-    st.error(f"Database not initialized or empty. Please run the processor script first. Error: {e}")
+    st.error(f"Database error or uninitialized. Please ensure the ingestion script has run. Technical Details: {e}")
 
 # Footer
 st.markdown("---")

@@ -4,4 +4,3 @@ plotly
 feedparser
 wordcloud
 matplotlib
-sqlite3-binary

@@ -4,3 +4,4 @@ plotly
 feedparser
 wordcloud
 matplotlib
+yfinance>=0.2.0

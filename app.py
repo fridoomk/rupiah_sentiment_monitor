@@ -12,6 +12,18 @@ st.set_page_config(page_title="Rupiah & Inflation Sentiment Monitor", layout="wi
 # Database Connection
 DB_PATH = "data/sentiment.db"
 
+# Custom Indonesian Stopwords untuk membersihkan Word Cloud
+INDONESIAN_STOPWORDS = set([
+    'yang', 'di', 'dan', 'itu', 'dengan', 'untuk', 'ini', 'dari', 'dalam', 
+    'akan', 'ke', 'adalah', 'bisa', 'jadi', 'diri', 'pada', 'sebagai', 
+    'oleh', 'juga', 'telah', 'ia', 'saat', 'hal', 'bukan', 'tak', 'namun', 
+    'serta', 'atau', 'karena', 'bila', 'jika', 'hingga', 'sebut', 'makin', 
+    'usai', 'warga', 'kena', 'bikin', 'mau', 'masih', 'ada', 'soal', 'lagi', 
+    'baru', 'hari', 'pakai', 'cuma', 'lewat', 'begini', 'punya', 'ungkap',
+    'banyak', 'secara', 'tersebut', 'juta', 'ribu', 'minta', 'kembali', 
+    'terkait', 'dapat', 'para', 'sebuah', 'menurut', 'kata', 'ke', 'ia'
+])
+
 def load_data():
     conn = sqlite3.connect(DB_PATH)
     query = "SELECT * FROM news ORDER BY created_at DESC"
@@ -82,7 +94,15 @@ try:
         if not df_filtered.empty:
             text = " ".join(df_filtered['title'].astype(str).tolist())
             if text.strip():
-                wordcloud = WordCloud(width=800, height=400, background_color='white', colormap='viridis').generate(text)
+                # PERBAIKAN: Menyisipkan parameter stopwords di sini
+                wordcloud = WordCloud(
+                    width=800, 
+                    height=400, 
+                    background_color='white', 
+                    colormap='viridis',
+                    stopwords=INDONESIAN_STOPWORDS
+                ).generate(text)
+                
                 fig, ax = plt.subplots()
                 ax.imshow(wordcloud, interpolation='bilinear')
                 ax.axis("off")

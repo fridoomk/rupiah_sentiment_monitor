@@ -17,7 +17,7 @@ st.set_page_config(page_title="Rupiah & Inflation Sentiment Monitor", layout="wi
 # Database Connection
 DB_PATH = "data/sentiment.db"
 
-# Custom Indonesian Stopwords (Diperluas untuk membersihkan residu teks media & promo retail)
+# Custom Indonesian Stopwords
 INDONESIAN_STOPWORDS = set([
     'yang', 'di', 'dan', 'itu', 'with', 'dengan', 'untuk', 'ini', 'dari', 'dalam', 
     'akan', 'ke', 'adalah', 'bisa', 'jadi', 'diri', 'pada', 'sebagai', 
@@ -27,7 +27,7 @@ INDONESIAN_STOPWORDS = set([
     'baru', 'hari', 'pakai', 'cuma', 'lewat', 'begini', 'punya', 'ungkap',
     'banyak', 'secara', 'tersebut', 'juta', 'ribu', 'minta', 'kembali', 
     'terkait', 'dapat', 'para', 'sebuah', 'menurut', 'kata', 'maupun', 'serta',
-    # Tambahan Filter Media, Istilah Klik & Promo Retail
+    # Filter Media, Istilah Klik & Promo Retail
     'video', 'full', 'day', 'sale', 'diskon', 'breaking', 'news', 'live', 
     'transmart', 'cnbc', 'cnn', 'antara', 'detik', 'kontan', 'baca', 'klik', 
     'lihat', 'pantau', 'simak', 'berikut', 'menurut', 'terbaru', 'update',
@@ -42,9 +42,9 @@ def load_data():
     conn.close()
     return df
 
-# Fungsi Mengambil Data Kurs USD/IDR dari Yahoo Finance secara otomatis
+# Fungsi Mengambil Data Kurs USD/IDR dari Yahoo Finance secara otomatis (Cached)
 @st.cache_data(ttl=3600)
-def get_usd_idr_data(start_date="2026-02-01"):
+def get_usd_idr_data(start_date):
     try:
         ticker = "IDR=X"
         df_kurs = yf.download(ticker, start=start_date)
@@ -62,9 +62,9 @@ def get_usd_idr_data(start_date="2026-02-01"):
 st.title("🇮🇩 Rupiah & Inflation Sentiment Monitor")
 st.markdown("Real-time sentiment analysis of Indonesian economic news for professional portfolio monitoring.")
 
-# Sidebar
+# Sidebar - Batas maksimum dinaikkan ke 120 hari agar bisa menjangkau Februari 2026
 st.sidebar.header("Filters")
-days = st.sidebar.slider("Select Data Range (Days) for Cloud & Headlines", 1, 30, 7)
+days = st.sidebar.slider("Select Data Range (Days) for Dashboard", 1, 120, 7)
 
 # Load Data
 try:
@@ -76,10 +76,14 @@ try:
     # Ambil titik waktu acuan dari data terbaru yang masuk di database
     latest_time = df['created_at'].max() if not df.empty else datetime.now()
     
-    # Filter data berdasarkan slider di sidebar (untuk Tab 2 & Tab 3)
-    df_filtered = df[df['created_at'] > (latest_time - timedelta(days=days))]
+    # Hitung batasan tanggal awal secara dinamis berdasarkan nilai slider
+    start_date_target = (latest_time - timedelta(days=days)).date()
+    start_date_str = start_date_target.strftime('%Y-%m-%d')
+    
+    # Filter data utama berdasarkan slider di sidebar (Berlaku global untuk semua tab)
+    df_filtered = df[df['created_at'] >= pd.to_datetime(start_date_str)]
 
-    # Metric Cards (Tetap berbasis data terkini)
+    # Metric Cards (Tetap berbasis data 24 jam terakhir untuk pemantauan taktis)
     col1, col2, col3 = st.columns(3)
     with col1:
         total_today = len(df[df['created_at'] > (latest_time - timedelta(days=1))])
@@ -98,23 +102,24 @@ try:
 
     with tab1:
         st.subheader("Analisis Korelasi Tren Sentimen vs Nilai Tukar Rupiah (USD/IDR)")
-        st.markdown("Grafik historis sumbu ganda memetakan dampak krisis eksogen sejak awal gejolak geopolitik (Februari 2026).")
+        st.markdown(f"Visualisasi sinkron bersumbu ganda menampilkan data selama **{days} hari terakhir** (sejak {start_date_str}).")
         
-        # Filter data sentimen khusus dari jangkar waktu Februari 2026 untuk menyandingkan data makro
-        df_macro_news = df[df['created_at'] >= '2026-02-01'].copy()
-        
-        if not df_macro_news.empty:
+        if not df_filtered.empty:
+            # Salin data terfilter untuk pemrosesan makro harian
+            df_macro_news = df_filtered.copy()
             df_macro_news['date'] = df_macro_news['created_at'].dt.date
+            
             # Agregasi skor sentimen harian
             df_sentiment_daily = df_macro_news.groupby('date')['sentiment_score'].mean().reset_index().rename(columns={'sentiment_score': 'avg_sentiment'})
             
-            # Ambil data kurs USD/IDR dari Yahoo Finance
-            df_kurs = get_usd_idr_data(start_date="2026-02-01")
+            # Ambil data kurs USD/IDR dari Yahoo Finance secara dinamis menggunakan start_date yang sama
+            df_kurs = get_usd_idr_data(start_date=start_date_str)
             
             if not df_kurs.empty:
-                # Gabungkan data berdasarkan tanggal berita dan tanggal pasar finansial terbuka
+                # Gabungkan data berdasarkan kesamaan tanggal berita dan tanggal pasar finansial terbuka
                 df_merged = pd.merge(df_sentiment_daily, df_kurs, on='date', how='outer').sort_values('date')
-                # Interpolasi linear jika ada gap hari libur pasar finansial (weekend)
+                
+                # Interpolasi linear untuk mengisi gap kosong (seperti hari libur bursa / weekend)
                 df_merged['kurs_rupiah'] = df_merged['kurs_rupiah'].interpolate(method='linear')
                 df_merged['avg_sentiment'] = df_merged['avg_sentiment'].interpolate(method='linear')
                 
@@ -149,7 +154,7 @@ try:
             else:
                 st.info("Gagal menyandingkan data karena data kurs finansial kosong.")
         else:
-            st.info("Belum ada data berita ekonomi di database sejak Februari 2026.")
+            st.info(f"Belum ada data berita ekonomi di database untuk rentang {days} hari terakhir.")
 
     with tab2:
         st.subheader("Dominant Economic Issues")

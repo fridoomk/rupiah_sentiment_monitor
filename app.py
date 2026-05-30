@@ -27,7 +27,9 @@ INDONESIAN_STOPWORDS = set([
     # Tambahan Filter Media, Istilah Klik & Promo Retail
     'video', 'full', 'day', 'sale', 'diskon', 'breaking', 'news', 'live', 
     'transmart', 'cnbc', 'cnn', 'antara', 'detik', 'kontan', 'baca', 'klik', 
-    'lihat', 'pantau', 'simak', 'berikut', 'menurut', 'terbaru', 'update'
+    'lihat', 'pantau', 'simak', 'berikut', 'menurut', 'terbaru', 'update',
+    # --- UPDATE BATCH 2: Filter Noise Non-Ekonomi Baru ---
+    'bos', 'buat', 'tiba', 'orang', 'jelang', 'per', 'buka'
 ])
 
 def load_data():
@@ -99,6 +101,10 @@ try:
                 # 1. Standardisasi teks ke lowercase & hapus tanda baca
                 cleaned_text = text.lower()
                 cleaned_text = re.sub(r'[^\w\s]', ' ', cleaned_text)
+                
+                # --- UPDATE REFIKASI: Hapus Angka Berdiri Sendiri (Mencegah residu '2026', '000') ---
+                cleaned_text = re.sub(r'\b\d+\b', ' ', cleaned_text)
+                
                 raw_words = cleaned_text.split()
                 
                 # 2. Filter kata tunggal bermakna (bukan stopword & panjang > 2 karakter)

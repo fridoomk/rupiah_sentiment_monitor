@@ -5,6 +5,8 @@ import plotly.express as px
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+import re
+from collections import Counter
 
 # Page Config
 st.set_page_config(page_title="Rupiah & Inflation Sentiment Monitor", layout="wide")
@@ -12,7 +14,7 @@ st.set_page_config(page_title="Rupiah & Inflation Sentiment Monitor", layout="wi
 # Database Connection
 DB_PATH = "data/sentiment.db"
 
-# Custom Indonesian Stopwords untuk membersihkan Word Cloud
+# Custom Indonesian Stopwords (Diperluas untuk membersihkan residu teks media & promo retail)
 INDONESIAN_STOPWORDS = set([
     'yang', 'di', 'dan', 'itu', 'dengan', 'untuk', 'ini', 'dari', 'dalam', 
     'akan', 'ke', 'adalah', 'bisa', 'jadi', 'diri', 'pada', 'sebagai', 
@@ -21,7 +23,11 @@ INDONESIAN_STOPWORDS = set([
     'usai', 'warga', 'kena', 'bikin', 'mau', 'masih', 'ada', 'soal', 'lagi', 
     'baru', 'hari', 'pakai', 'cuma', 'lewat', 'begini', 'punya', 'ungkap',
     'banyak', 'secara', 'tersebut', 'juta', 'ribu', 'minta', 'kembali', 
-    'terkait', 'dapat', 'para', 'sebuah', 'menurut', 'kata', 'ke', 'ia'
+    'terkait', 'dapat', 'para', 'sebuah', 'menurut', 'kata', 'maupun', 'serta',
+    # Tambahan Filter Media, Istilah Klik & Promo Retail
+    'video', 'full', 'day', 'sale', 'diskon', 'breaking', 'news', 'live', 
+    'transmart', 'cnbc', 'cnn', 'antara', 'detik', 'kontan', 'baca', 'klik', 
+    'lihat', 'pantau', 'simak', 'berikut', 'menurut', 'terbaru', 'update'
 ])
 
 def load_data():
@@ -46,7 +52,7 @@ try:
     # Memastikan format datetime aman & menangani fluktuasi format string timezone
     df['created_at'] = pd.to_datetime(df['created_at']).dt.tz_localize(None)
     
-    # Ambil titik waktu acuan dari data terbaru yang masuk di database (Lebih aman dari timezone server)
+    # Ambil titik waktu acuan dari data terbaru yang masuk di database
     latest_time = df['created_at'].max() if not df.empty else datetime.now()
     
     # Filter data berdasarkan slider di sidebar
@@ -55,7 +61,6 @@ try:
     # Metric Cards
     col1, col2, col3 = st.columns(3)
     with col1:
-        # Menghitung total berita dalam 24 jam terakhir dari waktu data terbaru
         total_today = len(df[df['created_at'] > (latest_time - timedelta(days=1))])
         st.metric("Total News (Today)", total_today)
     with col2:
@@ -73,14 +78,10 @@ try:
     with tab1:
         st.subheader(f"Sentiment Trends (Last {days} Days)")
         if not df_filtered.empty:
-            # PERBAIKAN: Menggunakan 'h' kecil untuk resample hourly dan basis data dinamis sesuai slider
             df_trends = df_filtered.set_index('created_at').resample('h')['sentiment_score'].mean().reset_index()
-            
-            # Jika rentang hari terlalu panjang, resample diubah ke harian ('d') otomatis agar grafik rapi
             if days > 7:
                 df_trends = df_filtered.set_index('created_at').resample('d')['sentiment_score'].mean().reset_index()
             
-            # Interpolasi linear jika ada jam kosong tanpa berita agar grafik tidak putus
             df_trends['sentiment_score'] = df_trends['sentiment_score'].interpolate(method='linear')
             
             fig = px.line(df_trends, x='created_at', y='sentiment_score', title="Sentiment Score Timeline")
@@ -94,14 +95,35 @@ try:
         if not df_filtered.empty:
             text = " ".join(df_filtered['title'].astype(str).tolist())
             if text.strip():
-                # PERBAIKAN: Menyisipkan parameter stopwords di sini
+                # --- PROSESING N-GRAM KUSTOM ---
+                # 1. Standardisasi teks ke lowercase & hapus tanda baca
+                cleaned_text = text.lower()
+                cleaned_text = re.sub(r'[^\w\s]', ' ', cleaned_text)
+                raw_words = cleaned_text.split()
+                
+                # 2. Filter kata tunggal bermakna (bukan stopword & panjang > 2 karakter)
+                filtered_words = [w for w in raw_words if w not in INDONESIAN_STOPWORDS and len(w) > 2]
+                
+                # 3. Hitung frekuensi baseline kata tunggal (1-Gram)
+                word_frequencies = Counter(filtered_words)
+                
+                # 4. Ekstrak & gabungkan kombinasi 2 Kata (Bigrams)
+                if len(filtered_words) >= 2:
+                    bigrams = [" ".join(filtered_words[i:i+2]) for i in range(len(filtered_words)-1)]
+                    word_frequencies.update(bigrams)
+                    
+                # 5. Ekstrak & gabungkan kombinasi 3 Kata (Trigrams)
+                if len(filtered_words) >= 3:
+                    trigrams = [" ".join(filtered_words[i:i+3]) for i in range(len(filtered_words)-2)]
+                    word_frequencies.update(trigrams)
+                
+                # Render Word Cloud menggunakan Dictionary Frekuensi Kustom
                 wordcloud = WordCloud(
                     width=800, 
                     height=400, 
                     background_color='white', 
-                    colormap='viridis',
-                    stopwords=INDONESIAN_STOPWORDS
-                ).generate(text)
+                    colormap='viridis'
+                ).generate_from_frequencies(word_frequencies)
                 
                 fig, ax = plt.subplots()
                 ax.imshow(wordcloud, interpolation='bilinear')
@@ -115,7 +137,6 @@ try:
     with tab3:
         st.subheader("Latest Economic Headlines")
         if not df_filtered.empty:
-            # Memastikan kolom yang dipanggil ada di dataframe
             available_cols = [col for col in ['created_at', 'source', 'title', 'sentiment_label'] if col in df_filtered.columns]
             st.dataframe(df_filtered[available_cols].head(20), use_container_width=True)
         else:
